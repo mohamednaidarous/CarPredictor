@@ -16,7 +16,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-DATA_PATH = "attached_assets/used_car_canada_clean_1785923494394.csv"
+DATA_PATH = "used_car_canada_clean.csv"
 
 # ─── Load & clean real dataset ────────────────────────────────────────────────
 @st.cache_data
