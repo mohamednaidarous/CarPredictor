@@ -219,3 +219,120 @@ if predict_btn or "last_pred" in st.session_state:
     fig_gauge.update_layout(height=280, margin=dict(t=40, b=10))
     st.plotly_chart(fig_gauge, use_container_width=True)
     st.divider()
+    tab1, tab2, tab3, tab4 = st.tabs(
+    ["📊 Price Distribution", "🔑 Feature Importance", "📈 Model Performance", "🔎 Dataset Explorer"]
+)
+
+# Tab 1 – Price Distribution
+with tab1:
+    st.subheader("Price Distribution by Category")
+    cat_opt = st.selectbox(
+        "Group by",
+        ["make", "body_type", "fuel_type", "drivetrain", "transmission", "state"],
+        key="dist_cat",
+        format_func=lambda x: x.replace("_", " ").title(),
+    )
+
+    # Only show groups with enough listings
+    top_groups = df[cat_opt].value_counts().head(15).index
+    plot_df    = df[df[cat_opt].isin(top_groups)]
+    fig_box = px.box(
+        plot_df, x=cat_opt, y="price", color=cat_opt,
+        title=f"Price Distribution by {cat_opt.replace('_',' ').title()} (top 15)",
+        labels={"price": "Price (CAD)"},
+    )
+    fig_box.update_layout(showlegend=False, xaxis_tickangle=-30)
+    st.plotly_chart(fig_box, use_container_width=True)
+
+    st.subheader("Price vs. Mileage")
+    sample = df.sample(min(800, len(df)), random_state=1)
+    fig_scatter = px.scatter(
+        sample, x="miles", y="price", color="body_type",
+        opacity=0.5, trendline="ols",
+        title="Mileage vs. Price (sample of 800)",
+        labels={"miles": "Mileage (km)", "price": "Price (CAD)", "body_type": "Body"},
+    )
+    st.plotly_chart(fig_scatter, use_container_width=True)
+
+# Tab 2 – Feature Importance
+with tab2:
+    st.subheader("What Drives the Price?")
+    fi_df = feat_imp.reset_index()
+    fi_df.columns = ["Feature", "Importance"]
+    fi_df["Feature"] = fi_df["Feature"].str.replace("_", " ").str.title()
+    fig_fi = px.bar(
+        fi_df, x="Importance", y="Feature", orientation="h",
+        color="Importance", color_continuous_scale="Blues",
+        title="Feature Importance (Gradient Boosting)",
+    )
+    fig_fi.update_layout(yaxis={"categoryorder": "total ascending"}, coloraxis_showscale=False)
+    st.plotly_chart(fig_fi, use_container_width=True)
+
+    st.subheader("Median Price by Model Year")
+    year_avg = df.groupby("year")["price"].median().reset_index()
+    fig_year = px.line(
+        year_avg, x="year", y="price", markers=True,
+        title="Median Listing Price by Model Year",
+        labels={"price": "Median Price (CAD)", "year": "Year"},
+    )
+    st.plotly_chart(fig_year, use_container_width=True)
+
+# Tab 3 – Model Performance
+with tab3:
+    st.subheader("Model Performance on Hold-out Test Set")
+    n_sample = min(500, len(y_test))
+    idx      = np.random.default_rng(42).choice(len(y_test), n_sample, replace=False)
+    perf_df  = pd.DataFrame({
+        "Actual":    y_test.values[idx],
+        "Predicted": preds[idx],
+    })
+
+    max_v = perf_df[["Actual", "Predicted"]].max().max()
+    fig_act = px.scatter(
+        perf_df, x="Actual", y="Predicted", opacity=0.6,
+        title="Actual vs. Predicted Prices",
+        labels={"Actual": "Actual Price (CAD)", "Predicted": "Predicted Price (CAD)"},
+    )
+    fig_act.add_shape(type="line", x0=0, x1=max_v, y0=0, y1=max_v,
+                      line=dict(color="red", dash="dash"))
+    st.plotly_chart(fig_act, use_container_width=True)
+
+    perf_df["Residual"] = perf_df["Predicted"] - perf_df["Actual"]
+    fig_res = px.histogram(
+        perf_df, x="Residual", nbins=60,
+        title="Residual Distribution (Predicted − Actual)",
+        labels={"Residual": "Residual (CAD)"},
+    )
+    st.plotly_chart(fig_res, use_container_width=True)
+
+    m1, m2, m3 = st.columns(3)
+    rmse = float(np.sqrt((perf_df["Residual"] ** 2).mean()))
+    m1.metric("R² Score", f"{r2:.4f}")
+    m2.metric("MAE",       f"${mae:,.0f} CAD")
+    m3.metric("RMSE",      f"${rmse:,.0f} CAD")
+
+# Tab 4 – Dataset Explorer
+with tab4:
+    st.subheader("Explore the Dataset")
+    c1, c2 = st.columns(2)
+    filter_make = c1.multiselect("Filter by Make",  MAKES,   default=[])
+    filter_body = c2.multiselect("Filter by Body",  BODY_TYPES, default=[])
+
+    show_df = df.copy()
+    if filter_make:
+        show_df = show_df[show_df["make"].isin(filter_make)]
+    if filter_body:
+        show_df = show_df[show_df["body_type"].isin(filter_body)]
+
+    display_cols = ["make", "year", "miles", "body_type", "drivetrain",
+                    "transmission", "fuel_type", "engine_size", "state", "price"]
+    st.dataframe(
+        show_df[display_cols].sort_values("price", ascending=False).reset_index(drop=True),
+        use_container_width=True, height=420,
+    )
+    st.caption(f"Showing {len(show_df):,} of {len(df):,} records")
+    st.download_button(
+        "📥 Download filtered CSV",
+        show_df[display_cols].to_csv(index=False),
+        "car_listings.csv", "text/csv",
+    )
